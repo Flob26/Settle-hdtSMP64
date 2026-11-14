@@ -32,6 +32,8 @@ TEST_CASE("round-trip: serialize then parse is identity for a clamped config")
 	c.teleportSpeedLimit = 900.0f;
 	c.teleportTurnLimit = 720.0f;
 	c.poseSnapSpeedLimit = 2500.0f;
+	c.settleSpeedLimit = 60.0f;
+	c.settleTimeLimit = 0.75f;
 	c.maximumActiveSkeletons = 42;
 	c.budgetMs = 7.5f;
 	c.erp = 0.33f;

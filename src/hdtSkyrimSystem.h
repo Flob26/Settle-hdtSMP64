@@ -45,6 +45,7 @@ namespace hdt
 
 	private:
 		btTransform rootTransform() const;
+		const char* ownerName() const;
 		float absorbDiscontinuity(float timeStep);
 
 		DiscontinuityGuard m_discontinuityGuard;

@@ -4,16 +4,33 @@
 
 namespace hdt
 {
+	namespace
+	{
+		// A settling system is released once its pose has stayed calm for this long, so that a pose
+		// change which starts a moment after the system was built is still waited for.
+		constexpr float kCalmTime = 0.25f;
+	}
+
 	void DiscontinuityGuard::restart(const btTransform& root)
 	{
 		m_lastRoot = root;
 		m_tracking = true;
 	}
 
+	void DiscontinuityGuard::settle()
+	{
+		m_settling = true;
+		m_heldFor = 0.0f;
+		m_calmFor = 0.0f;
+	}
+
 	DiscontinuityGuard::Finding DiscontinuityGuard::inspect(const Bones& bones, const btTransform& root, float timeStep, const DiscontinuitySettings& settings)
 	{
 		Finding finding;
 
+		if (!settings.enabled) {
+			m_settling = false;
+		}
 		if (!m_tracking || !settings.enabled || timeStep <= FLT_EPSILON) {
 			restart(root);
 			return finding;
@@ -30,6 +47,7 @@ namespace hdt
 		// What is left of each animated bone's motion once the root motion is taken out.
 		const float snapDistance = settings.poseSnapSpeedLimit * timeStep;
 		const float snapDistance2 = snapDistance * snapDistance;
+		float farthest2 = 0.0f;
 		for (const auto& bone : bones) {
 			if (!bone->m_rig.isStaticOrKinematicObject()) {
 				continue;
@@ -38,12 +56,29 @@ namespace hdt
 			++finding.animatedBones;
 			const auto target = static_cast<const SkyrimBone*>(bone.get())->animatedRigOrigin();
 			const auto carried = delta * bone->m_rig.getWorldTransform().getOrigin();
-			if ((target - carried).length2() > snapDistance2) {
+			const float moved2 = (target - carried).length2();
+			farthest2 = std::max(farthest2, moved2);
+			if (moved2 > snapDistance2) {
 				++finding.snappedBones;
 			}
 		}
+		finding.poseSpeed = std::sqrt(farthest2) / timeStep;
 
-		if (finding.snappedBones > 0 && finding.snappedBones * 4 >= finding.animatedBones) {
+		if (m_settling) {
+			m_heldFor += timeStep;
+			m_calmFor = finding.poseSpeed <= settings.settleSpeedLimit ? m_calmFor + timeStep : 0.0f;
+			finding.heldFor = m_heldFor;
+
+			if (m_calmFor < kCalmTime && m_heldFor < settings.settleTimeLimit) {
+				finding.action = Action::kHold;
+			} else {
+				m_settling = false;
+				finding.released = true;
+			}
+			return finding;
+		}
+
+		if (finding.snappedBones > 0 && finding.snappedBones * 2 >= finding.animatedBones) {
 			finding.action = Action::kRestart;
 		} else if (finding.rootSpeed > settings.teleportSpeedLimit || finding.turnSpeed > settings.teleportTurnLimit) {
 			carry(bones, delta);

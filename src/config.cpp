@@ -72,6 +72,8 @@ namespace hdt
 		w->m_discontinuity.teleportSpeedLimit = c.teleportSpeedLimit;
 		w->m_discontinuity.teleportTurnLimit = c.teleportTurnLimit;
 		w->m_discontinuity.poseSnapSpeedLimit = c.poseSnapSpeedLimit;
+		w->m_discontinuity.settleSpeedLimit = c.settleSpeedLimit;
+		w->m_discontinuity.settleTimeLimit = c.settleTimeLimit;
 		w->m_budgetMs = c.budgetMs;
 		w->m_useRealTime = c.useRealTime;
 		w->m_sampleSize = c.sampleSize;
@@ -126,6 +128,8 @@ namespace hdt
 		c.teleportSpeedLimit = w->m_discontinuity.teleportSpeedLimit;
 		c.teleportTurnLimit = w->m_discontinuity.teleportTurnLimit;
 		c.poseSnapSpeedLimit = w->m_discontinuity.poseSnapSpeedLimit;
+		c.settleSpeedLimit = w->m_discontinuity.settleSpeedLimit;
+		c.settleTimeLimit = w->m_discontinuity.settleTimeLimit;
 		c.budgetMs = w->m_budgetMs;
 		c.useRealTime = w->m_useRealTime;
 		c.sampleSize = w->m_sampleSize;
@@ -228,6 +232,8 @@ namespace hdt
 		LOG("smp.teleportSpeedLimit", w->m_discontinuity.teleportSpeedLimit);
 		LOG("smp.teleportTurnLimit", w->m_discontinuity.teleportTurnLimit);
 		LOG("smp.poseSnapSpeedLimit", w->m_discontinuity.poseSnapSpeedLimit);
+		LOG("smp.settleSpeedLimit", w->m_discontinuity.settleSpeedLimit);
+		LOG("smp.settleTimeLimit", w->m_discontinuity.settleTimeLimit);
 		LOG("smp.budgetMS", w->m_budgetMs);
 		LOG("smp.useRealTime", w->m_useRealTime);
 		LOG("smp.minCullingDistance", a->m_minCullingDistance);
