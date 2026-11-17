@@ -1,4 +1,5 @@
 #include "hdtSkyrimSystem.h"
+#include "hdtSeatHug.h"
 #include "hdtSkinnedMesh/hdtSkinnedMeshShape.h"
 
 #include "HavokUtils.h"
@@ -385,6 +386,16 @@ namespace hdt
 		if (m_reader->GetErrorCode() != Xml::ErrorCode::None) {
 			logger::error("xml parse error - {}", m_reader->GetErrorMessage());
 			return nullptr;
+		}
+
+		// Flobrim fork: generic seated hug, added while the skeleton is still in the reference pose
+		if (auto* owner = m_skeleton ? m_skeleton->GetUserData() : nullptr) {
+			world::HugParams hug;
+			if (seathug::lookup(owner->formID, m_filePath, hug)) {
+				std::string report;
+				const auto n = addSeatHug(hug, report);
+				seathug::noteBuilt(owner->formID, m_filePath, n, std::move(report));
+			}
 		}
 
 		m_mesh->m_skeleton = hdt::make_nismart(m_skeleton);
@@ -1247,11 +1258,16 @@ namespace hdt
 		if (!findBones(bodyAName, bodyBName, bodyA, bodyB))
 			return nullptr;
 
+		auto cinfo = getGenericConstraintTemplate(clsname);
+		readGenericConstraintTemplate(cinfo);
+		return buildGenericConstraint(bodyA, bodyB, cinfo);
+	}
+
+	RE::BSTSmartPointer<Generic6DofConstraint> SkyrimSystemCreator::buildGenericConstraint(SkyrimBone* bodyA, SkyrimBone* bodyB, const GenericConstraintTemplate& cinfo)
+	{
 		auto trA = bodyA->m_currentTransform;
 		auto trB = bodyB->m_currentTransform;
 
-		auto cinfo = getGenericConstraintTemplate(clsname);
-		readGenericConstraintTemplate(cinfo);
 		btTransform frameA, frameB;
 		calcFrame(cinfo.frameType, cinfo.frame, trA, trB, frameA, frameB);
 
