@@ -8,6 +8,9 @@
 #include "XmlReader.h"
 #include "hdtSkyrimPhysicsWorld.h"
 
+#include <algorithm>
+#include <cctype>
+
 // F16C isn't supported on super old processors. AVX2+ (AVX processors can have it, but not guaranteed)
 #if defined(__AVX2__) || defined(__AVX512F__)
 #	include <immintrin.h>
@@ -454,8 +457,36 @@ namespace hdt
 		if (auto* owner = m_skeleton ? m_skeleton->GetUserData() : nullptr) {
 			world::HugParams hug;
 			if (seathug::lookup(owner->formID, m_filePath, hug)) {
+				// ground planes (VirtualGround, tag "ground") follow NPC Root; while riding that is at the saddle
+				std::uint32_t grounds = 0;
+				if (hug.groundOff > 0.f) {
+					for (auto& mesh : m_mesh->m_meshes) {
+						auto body = static_cast<SkyrimBody*>(mesh.get());
+						if (!body)
+							continue;
+						bool ground = false;
+						for (auto& t : body->m_tags) {
+							std::string tag = t.c_str();
+							std::transform(tag.begin(), tag.end(), tag.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+							if (tag == "ground")
+								ground = true;
+						}
+						std::string name = body->m_name.c_str();
+						std::transform(name.begin(), name.end(), name.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+						if (name.find("virtualground") != std::string::npos)
+							ground = true;
+						if (ground) {
+							body->m_disabled = true;
+							++grounds;
+						}
+					}
+				}
 				std::string report;
-				const auto n = addSeatHug(hug, report);
+				auto n = addSeatHug(hug, report);
+				if (grounds) {
+					report = fmt::format("{} ground plane(s) off; {}", grounds, report);
+					n += grounds;  // so the item is rebuilt (ground back on) when the hug is turned off
+				}
 				seathug::noteBuilt(owner->formID, m_filePath, n, std::move(report));
 			}
 		}

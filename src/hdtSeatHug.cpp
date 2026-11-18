@@ -62,7 +62,7 @@ namespace hdt::seathug
 			       a.damping == b.damping && a.backLift == b.backLift && a.pull == b.pull && a.surface == b.surface && a.debug == b.debug &&
 			       a.shinMax == b.shinMax && a.shinSurface == b.shinSurface && a.pullFraction == b.pullFraction && a.kneeT == b.kneeT && a.centerBand == b.centerBand && a.pullMode == b.pullMode &&
 			       a.frontArc == b.frontArc && a.centerBlend == b.centerBlend && a.longSkirt == b.longSkirt &&
-			       a.relaxStiffness == b.relaxStiffness && a.relaxAngle == b.relaxAngle;
+			       a.relaxStiffness == b.relaxStiffness && a.relaxAngle == b.relaxAngle && a.groundOff == b.groundOff;
 		}
 
 		// Rebuilds the actor's SMP armor items whose current physics path passes `want`, keeping poses.
