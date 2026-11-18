@@ -77,6 +77,9 @@ namespace hdt::world
 		// appended (fork build wc11): for items skipped as long skirts, soften their own cloth constraints so gravity can drape them
 		float relaxStiffness = 0.0f;   // >0 = multiply the angular spring stiffness of the skirt's constraints by this (0.1 = 10%); 0 = off
 		float relaxAngle = 0.0f;       // radians: every angular limit of those constraints opens to at least +/- this
+		// appended (fork build wc12):
+		float groundOff = 0.0f;        // >0 = the item's "ground" shapes (VirtualGround planes on NPC Root) are switched off while this is on.
+		                               // Riding lifts NPC Root to the saddle, so that plane would hold the skirt up as a flat disc.
 	};
 
 	struct ColliderDesc
