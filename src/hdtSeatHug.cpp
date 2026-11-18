@@ -2,6 +2,7 @@
 
 #include "ActorManager.h"
 #include "DynamicHDT.h"
+#include "hdtSkinnedMesh/hdtConeTwistConstraint.h"
 #include "hdtSkinnedMesh/hdtConstraintGroup.h"
 #include "hdtSkinnedMesh/hdtGeneric6DofConstraint.h"
 #include "hdtSkyrimPhysicsWorld.h"
@@ -60,7 +61,8 @@ namespace hdt::seathug
 			       a.angularLimit == b.angularLimit && a.linearStiffness == b.linearStiffness && a.angularStiffness == b.angularStiffness &&
 			       a.damping == b.damping && a.backLift == b.backLift && a.pull == b.pull && a.surface == b.surface && a.debug == b.debug &&
 			       a.shinMax == b.shinMax && a.shinSurface == b.shinSurface && a.pullFraction == b.pullFraction && a.kneeT == b.kneeT && a.centerBand == b.centerBand && a.pullMode == b.pullMode &&
-			       a.frontArc == b.frontArc && a.centerBlend == b.centerBlend && a.longSkirt == b.longSkirt;
+			       a.frontArc == b.frontArc && a.centerBlend == b.centerBlend && a.longSkirt == b.longSkirt &&
+			       a.relaxStiffness == b.relaxStiffness && a.relaxAngle == b.relaxAngle;
 		}
 
 		// Rebuilds the actor's SMP armor items whose current physics path passes `want`, keeping poses.
@@ -444,8 +446,67 @@ namespace hdt
 			reachShin = std::max(reachShin, (P - segA[s][1]).dot(ax) / std::max(ax.length2(), 1.f));
 		}
 		if (p.longSkirt > 0.f && reachShin > p.longSkirt) {
-			report = fmt::format("long skirt (cloth reaches {:.2f} down the shin > fHugLongSkirt {:.2f}): no hug, plain physics + seat collision", reachShin, p.longSkirt);
-			return 0;
+			if (p.relaxStiffness <= 0.f && p.relaxAngle <= 0.f) {
+				report = fmt::format("long skirt (cloth reaches {:.2f} down the shin > fHugLongSkirt {:.2f}): no hug, plain physics + seat collision", reachShin, p.longSkirt);
+				return 0;
+			}
+			// Relax: soften the item's own constraints between lower-body cloth bones so gravity can drape the skirt
+			// (e.g. over a horse). Undone by the rebuild when the hug is turned off; counted as constraints so it is.
+			auto isCloth = [&](SkinnedMeshBone* b) {
+				if (!b || isKinematic(b))
+					return false;
+				auto node = static_cast<SkyrimBone*>(b)->m_node.get();
+				return node && !nodeUnder(node, kLeg, m_skeleton) && lowerBodyChain(b);
+			};
+			std::uint32_t six = 0, cone = 0, other = 0;
+			auto relax = [&](const std::vector<RE::BSTSmartPointer<BoneScaleConstraint>>& list) {
+				for (auto& c : list) {
+					if (!c || !(isCloth(c->m_boneA) || isCloth(c->m_boneB)))
+						continue;
+					auto tc = c->getConstraint();
+					if (!tc) {
+						++other;
+						continue;
+					}
+					if (tc->getConstraintType() == D6_SPRING_2_CONSTRAINT_TYPE) {
+						auto g = static_cast<btGeneric6DofSpring2Constraint*>(tc);
+						if (p.relaxAngle > 0.f) {
+							btVector3 lo, hi;
+							g->getAngularLowerLimit(lo);
+							g->getAngularUpperLimit(hi);
+							for (int a = 0; a < 3; ++a) {
+								if (lo[a] <= hi[a]) {  // lo > hi = already free
+									lo[a] = std::min(lo[a], -p.relaxAngle);
+									hi[a] = std::max(hi[a], p.relaxAngle);
+								}
+							}
+							g->setAngularLowerLimit(lo);
+							g->setAngularUpperLimit(hi);
+						}
+						if (p.relaxStiffness > 0.f) {
+							for (int a = 0; a < 3; ++a)
+								g->setStiffness(3 + a, g->getRotationalLimitMotor(a)->m_springStiffness * p.relaxStiffness);
+						}
+						++six;
+					} else if (tc->getConstraintType() == CONETWIST_CONSTRAINT_TYPE) {
+						auto ct = static_cast<btConeTwistConstraint*>(tc);
+						if (p.relaxAngle > 0.f) {
+							ct->setLimit(std::max(ct->getSwingSpan1(), p.relaxAngle), std::max(ct->getSwingSpan2(), p.relaxAngle),
+								std::max(ct->getTwistSpan(), p.relaxAngle), ct->getLimitSoftness(), ct->getBiasFactor(), ct->getRelaxationFactor());
+						}
+						++cone;
+					} else {
+						++other;
+					}
+				}
+			};
+			relax(m_mesh->m_constraints);
+			for (auto& g : m_mesh->m_constraintGroups)
+				if (g)
+					relax(g->m_constraints);
+			report = fmt::format("long skirt (reaches {:.2f} down the shin): no hug, cloth relaxed: {} 6dof + {} cone-twist constraints (stiffness x{:.2f}, angle >= {:.2f} rad), {} other left as is",
+				reachShin, six, cone, p.relaxStiffness, p.relaxAngle, other);
+			return six + cone;
 		}
 
 		std::uint32_t added = 0, dynamic = 0, upper = 0, leg = 0, outOfRange = 0, back = 0, pulled = 0, shin = 0;
