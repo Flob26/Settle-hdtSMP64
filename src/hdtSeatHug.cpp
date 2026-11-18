@@ -33,7 +33,7 @@ namespace hdt::seathug
 		{
 			bool on = false;
 			world::HugParams params;
-			std::unordered_set<std::string> skip;
+			std::unordered_set<std::string> skip;  // lower-case physics paths left alone (seat-swapped or ignored)
 			std::unordered_map<std::string, ItemResult> built;  // physics path -> last build result while on
 			std::vector<RE::BSTSmartPointer<Generic6DofConstraint>> constraints;  // hug constraints built while on
 		};
@@ -110,7 +110,7 @@ namespace hdt::seathug
 	{
 		std::lock_guard l(g_lock);
 		auto it = g_actors.find(actorFormID);
-		if (it == g_actors.end() || !it->second.on || it->second.skip.contains(path))
+		if (it == g_actors.end() || !it->second.on || it->second.skip.contains(lower(path)))
 			return false;
 		out = it->second.params;
 		if (auto o = g_overrides.find(lower(path)); o != g_overrides.end()) {
@@ -221,7 +221,7 @@ namespace hdt::seathug
 				st.skip.clear();
 				for (std::uint32_t i = 0; skipPaths && i < skipCount; ++i)
 					if (skipPaths[i])
-						st.skip.insert(skipPaths[i]);
+						st.skip.insert(lower(skipPaths[i]));
 				st.built.clear();
 				st.constraints.clear();
 				log = st.params.log;
@@ -231,7 +231,7 @@ namespace hdt::seathug
 				}
 				auto skip = st.skip;
 				auto noHug = g_noHug;
-				want = [skip, noHug](const std::string& p) { return !skip.contains(p) && !noHug.contains(p); };
+				want = [skip, noHug](const std::string& p) { return !skip.contains(lower(p)) && !noHug.contains(p); };
 			} else {
 				if (!st.on) {
 					g_actors.erase(actorFormID);
@@ -283,6 +283,22 @@ namespace hdt
 				if (n == stop)
 					return false;
 				if (names.contains(n->name.c_str()))
+					return true;
+			}
+			return false;
+		}
+
+		// Settle 1.1.1: tails are not skirt cloth (an equippable tail hangs from the pelvis near the thighs and was
+		// tied to the legs). "tail" anywhere in a node name, case-insensitive, except detail/retail.
+		bool isTailName(const char* name)
+		{
+			if (!name)
+				return false;
+			std::string s(name);
+			std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+			for (auto pos = s.find("tail"); pos != std::string::npos; pos = s.find("tail", pos + 1)) {
+				const bool deRe = pos >= 2 && (s.compare(pos - 2, 2, "de") == 0 || s.compare(pos - 2, 2, "re") == 0);
+				if (!deRe)
 					return true;
 			}
 			return false;
@@ -408,6 +424,12 @@ namespace hdt
 			}
 			return root;
 		};
+		auto isTail = [&](SkyrimBone* b) {
+			for (RE::NiAVObject* n = b->m_node.get(); n && n != m_skeleton; n = n->parent)
+				if (isTailName(n->name.c_str()))
+					return true;
+			return false;
+		};
 		auto thighDist = [&](const btVector3& P, int s, float& t, btVector3& on) {
 			const btVector3 ax = segB[s][0] - segA[s][0];
 			const float len2 = std::max(ax.length2(), 1.f);
@@ -433,7 +455,7 @@ namespace hdt
 		// skirt length: how far below the knee the item's cloth bones reach (0 = knee, 1 = ankle), on the nearer leg
 		float reachShin = -1.f;
 		for (auto& [node, b] : dynByNode) {
-			if (nodeUnder(node, kLeg, m_skeleton) || !lowerBodyChain(b))
+			if (nodeUnder(node, kLeg, m_skeleton) || !lowerBodyChain(b) || isTail(b))
 				continue;
 			float t0, t1;
 			btVector3 on0, on1;
@@ -509,7 +531,7 @@ namespace hdt
 			return six + cone;
 		}
 
-		std::uint32_t added = 0, dynamic = 0, upper = 0, leg = 0, outOfRange = 0, back = 0, pulled = 0, shin = 0;
+		std::uint32_t added = 0, dynamic = 0, upper = 0, leg = 0, outOfRange = 0, back = 0, pulled = 0, shin = 0, tails = 0;
 		std::string detail;
 		std::string tag;
 		auto note = [&](SkyrimBone* b, const char* what, const char* seg, float t, float d) {
@@ -524,6 +546,11 @@ namespace hdt
 			if (nodeUnder(bone->m_node.get(), kLeg, m_skeleton)) {
 				++leg;  // body soft-tissue bones hanging from the legs (e.g. 3BA thighs), not cloth
 				note(bone, "under a leg node", "-", 0, 0);
+				continue;
+			}
+			if (isTail(bone)) {
+				++tails;
+				note(bone, "tail, left free", "-", 0, 0);
 				continue;
 			}
 			if (!lowerBodyChain(bone)) {
@@ -639,8 +666,8 @@ namespace hdt
 				++outOfRange;
 		}
 
-		report = fmt::format("{} hug constraints (skirt reaches {:.2f} down the shin; {} on the shins, {} pulled to the leg, {} with back lift); {} dynamic bones: {} under the legs, {} on upper-body/unanchored chains, {} outside leg range{}",
-			added, reachShin, shin, pulled, back, dynamic, leg, upper, outOfRange, detail);
+		report = fmt::format("{} hug constraints (skirt reaches {:.2f} down the shin; {} on the shins, {} pulled to the leg, {} with back lift); {} dynamic bones: {} under the legs, {} on upper-body/unanchored chains, {} tail bones, {} outside leg range{}",
+			added, reachShin, shin, pulled, back, dynamic, leg, upper, tails, outOfRange, detail);
 		return added;
 	}
 }
