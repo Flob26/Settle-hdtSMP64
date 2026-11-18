@@ -60,6 +60,40 @@ namespace hdt
 		m_rig.setInterpolationAngularVelocity(zero);
 	}
 
+	AttachedColliderBone::AttachedColliderBone(const RE::BSFixedString& name, btRigidBody::btRigidBodyConstructionInfo& ci, RE::NiNode* node) :
+		SkinnedMeshBone(name, ci), m_node(node)
+	{
+		m_rig.setCollisionFlags(btCollisionObject::CF_KINEMATIC_OBJECT);
+		readTransform(RESET_PHYSICS);
+	}
+
+	void AttachedColliderBone::readTransform(float timeStep)
+	{
+		// Main thread (SkyrimPhysicsWorld::doUpdate). The vertices follow m_currentTransform; the rig (empty shape)
+		// is kept on the node with kinematic velocities, like SkyrimBone does for animated bones.
+		if (!m_node)
+			return;
+		const btTransform current = m_rig.getWorldTransform();
+		m_currentTransform = convertNi(m_node->world);
+		const btTransform dest = m_currentTransform.asTransform();
+		static const btVector3 zero(0, 0, 0);
+		if (timeStep <= RESET_PHYSICS) {
+			m_rig.setLinearVelocity(zero);
+			m_rig.setAngularVelocity(zero);
+			m_rig.setInterpolationLinearVelocity(zero);
+			m_rig.setInterpolationAngularVelocity(zero);
+		} else {
+			btVector3 linVel, angVel;
+			btTransformUtil::calculateVelocity(current, dest, timeStep, linVel, angVel);
+			m_rig.setLinearVelocity(linVel);
+			m_rig.setAngularVelocity(angVel);
+			m_rig.setInterpolationLinearVelocity(linVel);
+			m_rig.setInterpolationAngularVelocity(angVel);
+		}
+		m_rig.setWorldTransform(dest);
+		m_rig.setInterpolationWorldTransform(dest);
+	}
+
 	// ---------------------------------------------------------------- body
 
 	bool WorldColliderBody::allows(const SkinnedMeshBody* other) const
@@ -116,7 +150,7 @@ namespace hdt
 		return timeStep;
 	}
 
-	RE::BSTSmartPointer<WorldColliderSystem> WorldColliderSystem::build(const world::ColliderDesc& d, std::uint32_t id)
+	RE::BSTSmartPointer<WorldColliderSystem> WorldColliderSystem::build(const world::ColliderDesc& d, std::uint32_t id, RE::NiNode* attachNode)
 	{
 		if (!d.positions || !d.indices || d.vertexCount < 3 || d.triangleCount == 0 ||
 			d.vertexCount > kMaxVertices || d.triangleCount > kMaxTriangles) {
@@ -136,7 +170,13 @@ namespace hdt
 			mn.setMin(v);
 			mx.setMax(v);
 		}
-		const btVector3 origin = (mn + mx) * 0.5f;
+		btVector3 origin = (mn + mx) * 0.5f;
+		// attached: vertices are stored in the node's frame (inverse of its world transform, scale included)
+		btQsTransform toLocal(btQuaternion::getIdentity(), -origin, 1.0f);
+		if (attachNode) {
+			toLocal = convertNi(attachNode->world).inverse();
+			origin = btVector3(0, 0, 0);
+		}
 
 		auto system = hdt::make_smart(new WorldColliderSystem());
 
@@ -145,7 +185,11 @@ namespace hdt
 
 		btRigidBody::btRigidBodyConstructionInfo ci(0, nullptr, &g_worldEmptyShape);
 		ci.m_friction = d.friction;
-		auto bone = new WorldColliderBone(name, ci, origin);
+		SkinnedMeshBone* bone;
+		if (attachNode)
+			bone = new AttachedColliderBone(name, ci, attachNode);
+		else
+			bone = new WorldColliderBone(name, ci, origin);
 		bone->m_marginMultipler = 1.0f;
 		system->m_bones.push_back(hdt::make_smart<SkinnedMeshBone>(bone));
 
@@ -161,7 +205,7 @@ namespace hdt
 		float radius = 0.f;
 		for (std::uint32_t i = 0; i < d.vertexCount; ++i) {
 			const float* p = d.positions + 3 * i;
-			radius = std::max(radius, (btVector3(p[0], p[1], p[2]) - origin).length());
+			radius = std::max(radius, (toLocal * btVector3(p[0], p[1], p[2])).length());
 		}
 		const btQsTransform identity(btQuaternion::getIdentity(), btVector3(0, 0, 0), 1.0f);
 		body->addBone(bone, identity, BoundingSphere(btVector3(0, 0, 0), radius + std::max(d.margin, 0.f) + 1.f));
@@ -170,7 +214,7 @@ namespace hdt
 		for (std::uint32_t i = 0; i < d.vertexCount; ++i) {
 			const float* p = d.positions + 3 * i;
 			auto& v = body->m_vertices[i];
-			v.m_skinPos = btVector3(p[0], p[1], p[2]) - origin;
+			v.m_skinPos = toLocal * btVector3(p[0], p[1], p[2]);
 			v.m_weight[0] = 1.f;
 			v.m_weight[1] = v.m_weight[2] = v.m_weight[3] = 0.f;
 			v.m_boneIdx[0] = v.m_boneIdx[1] = v.m_boneIdx[2] = v.m_boneIdx[3] = 0;
@@ -201,6 +245,8 @@ namespace hdt
 		system->m_body = body.get();
 		system->m_meshes.push_back(hdt::make_smart<SkinnedMeshBody>(body.get()));
 
+		if (attachNode)
+			logger::info("[world] collider {} attached to node '{}'", id, attachNode->name.c_str());
 		logger::info("[world] collider {} built: {} triangles, {} vertices, origin ({:.1f}, {:.1f}, {:.1f}), radius {:.1f}, margin {:.2f}, penetration {:.2f}, friction {:.2f}, owner {:08X}",
 			id, added, body->m_vertices.size(), origin.x(), origin.y(), origin.z(), radius, d.margin, d.penetration, d.friction, d.ownerFormID);
 		return system;
@@ -216,6 +262,26 @@ namespace hdt
 
 	world::Handle WorldColliderManager::addCollider(const world::ColliderDesc& desc)
 	{
+		return add(desc, nullptr);
+	}
+
+	world::Handle WorldColliderManager::addAttachedCollider(const world::ColliderDesc& desc, std::uint32_t attachActorFormID, const char* nodeName)
+	{
+		if (!attachActorFormID || !nodeName || !*nodeName)
+			return 0;
+		auto actor = RE::TESForm::LookupByID<RE::Actor>(attachActorFormID);
+		auto root = actor ? actor->Get3D1(false) : nullptr;
+		auto obj = root ? root->GetObjectByName(RE::BSFixedString(nodeName)) : nullptr;
+		auto node = obj ? obj->AsNode() : nullptr;
+		if (!node) {
+			logger::warn("[world] attached collider: node '{}' not found on {:08X}", nodeName, attachActorFormID);
+			return 0;
+		}
+		return add(desc, node);
+	}
+
+	world::Handle WorldColliderManager::add(const world::ColliderDesc& desc, RE::NiNode* attachNode)
+	{
 		auto world = SkyrimPhysicsWorld::get();
 		if (!world || world->disabled)
 			return 0;
@@ -228,7 +294,7 @@ namespace hdt
 				m_nextHandle = 1;
 		}
 
-		auto system = WorldColliderSystem::build(desc, handle);
+		auto system = WorldColliderSystem::build(desc, handle, attachNode);
 		if (!system)
 			return 0;
 

@@ -108,7 +108,7 @@ namespace hdt::world
 	class IWorldCollision
 	{
 	public:
-		static constexpr std::uint32_t VERSION = 5;
+		static constexpr std::uint32_t VERSION = 6;
 
 		virtual std::uint32_t version() const = 0;
 
@@ -154,6 +154,12 @@ namespace hdt::world
 		// params instead of the actor's. nullptr removes the override. Applies to systems built afterwards.
 		virtual void setHugOverride(const char* path, const HugParams* params) = 0;
 		virtual void clearHugOverrides() = 0;
+
+		// v6: like addCollider, but the collider follows a node of another actor's skeleton (e.g. a horse's spine)
+		// every physics frame. desc.positions are world space at the time of the call (main thread); the node is
+		// looked up by name in attachActorFormID's third-person 3D. ownerFormID still selects whose cloth collides.
+		// Returns 0 if the actor or node is not found. Remove with removeCollider.
+		virtual Handle addAttachedCollider(const ColliderDesc& desc, std::uint32_t attachActorFormID, const char* nodeName) = 0;
 
 	protected:
 		~IWorldCollision() = default;
