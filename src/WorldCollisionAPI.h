@@ -74,6 +74,9 @@ namespace hdt::world
 		float centerBlend = 0.0f;      // units; panels whose left/right thigh distances differ by less than this are tied softly to BOTH thighs (spans the gap)
 		// appended (fork build wc10):
 		float longSkirt = 0.0f;        // >0 = when the item's cloth bones reach further down the shin than this (0 = knee, 1 = ankle), no hug: long skirts keep plain physics + seat collision
+		// appended (fork build wc11): for items skipped as long skirts, soften their own cloth constraints so gravity can drape them
+		float relaxStiffness = 0.0f;   // >0 = multiply the angular spring stiffness of the skirt's constraints by this (0.1 = 10%); 0 = off
+		float relaxAngle = 0.0f;       // radians: every angular limit of those constraints opens to at least +/- this
 	};
 
 	struct ColliderDesc
