@@ -25,6 +25,18 @@ namespace hdt
 		btTransform m_fixed;
 	};
 
+	// Kinematic bone that follows a node of another skeleton (attached colliders). Never writes back to the node.
+	class AttachedColliderBone : public SkinnedMeshBone
+	{
+	public:
+		AttachedColliderBone(const RE::BSFixedString& name, btRigidBody::btRigidBodyConstructionInfo& ci, RE::NiNode* node);
+
+		void readTransform(float timeStep) override;
+		void writeTransform() override {}
+
+		RE::NiPointer<RE::NiNode> m_node;
+	};
+
 	class WorldColliderBody : public SkyrimBody
 	{
 	public:
@@ -47,7 +59,7 @@ namespace hdt
 		WorldColliderSystem();
 
 		// Builds a complete system from the description. Returns null on bad input.
-		static RE::BSTSmartPointer<WorldColliderSystem> build(const world::ColliderDesc& desc, std::uint32_t id);
+		static RE::BSTSmartPointer<WorldColliderSystem> build(const world::ColliderDesc& desc, std::uint32_t id, RE::NiNode* attachNode = nullptr);
 
 		float prepareForRead(float timeStep) override;
 
@@ -72,9 +84,11 @@ namespace hdt
 		std::uint32_t freezeSeatedHug(std::uint32_t actorFormID) override;
 		void setHugOverride(const char* path, const world::HugParams* params) override;
 		void clearHugOverrides() override;
+		world::Handle addAttachedCollider(const world::ColliderDesc& desc, std::uint32_t attachActorFormID, const char* nodeName) override;
 
 	private:
 		WorldColliderManager() = default;
+		world::Handle add(const world::ColliderDesc& desc, RE::NiNode* attachNode);
 
 		mutable std::mutex m_mapLock;
 		std::unordered_map<world::Handle, RE::BSTSmartPointer<WorldColliderSystem>> m_colliders;
