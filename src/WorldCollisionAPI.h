@@ -141,7 +141,7 @@ namespace hdt::world
 		// ---- v3 (check version() >= 3 before calling) ----
 
 		// params != nullptr: turn the seated hug on for the actor (or update its params) and rebuild the
-		// actor's SMP items, except items whose current physics XML path is in skipPaths (exact match, e.g.
+		// actor's SMP items, except items whose current physics XML path is in skipPaths (case-insensitive since Settle 1.1.1, e.g.
 		// items already swapped to a hand-made seated XML). params == nullptr: turn it off and rebuild the
 		// items that got a hug. Items' current poses are kept across the rebuild. Not saved in the savegame.
 		// Returns the number of hug constraints now active on the actor.
