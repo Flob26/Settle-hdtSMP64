@@ -218,6 +218,11 @@ namespace hdt::seathug
 			c->setAngularUpperLimit(zero);
 			for (int i = 0; i < 6; ++i)
 				c->setEquilibriumPoint(i, 0.f);
+			// the seat/horse collider stops pushing the locked cloth bone (a contact against a lock only shakes it)
+			if (!c->m_boneA->m_rig.isStaticOrKinematicObject())
+				c->m_boneA->m_rig.setUserIndex3(kHugFrozenBone);
+			if (!c->m_boneB->m_rig.isStaticOrKinematicObject())
+				c->m_boneB->m_rig.setUserIndex3(kHugFrozenBone);
 			++n;
 		}
 		return n;
@@ -421,6 +426,11 @@ namespace hdt
 				indexBone(b);
 			} else if (!b->m_rig.isStaticOrKinematicObject()) {
 				return nullptr;  // an outfit simulating the leg bone itself: leave it alone
+			} else {
+				// The item's own kinematic leg bone can still hold an unread transform here (seen with Sons of Skyrim
+				// SMP Reborn: origin, scale 1). The tie frames are built from m_currentTransform, so read it now, in the
+				// same reference pose the cloth bones were read in; otherwise the tie anchors thousands of units away.
+				b->readTransform(RESET_PHYSICS);
 			}
 			segBone[s][g] = b;
 			return b;
